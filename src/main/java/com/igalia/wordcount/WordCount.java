@@ -17,28 +17,33 @@
 
 package com.igalia.wordcount;
 
+import static org.apache.hadoop.hbase.util.Bytes.toBytes;
+
 import java.io.IOException;
 import java.util.StringTokenizer;
 
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
+import org.apache.hadoop.hbase.mapreduce.TableReducer;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
-import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 
 /**
  * 
+ * How to write output of a job to a HBase database
+ * 
  * @author Diego Pino García <dpino@igalia.com>
  * 
- * Canonical implementation at http://wiki.apache.org/hadoop/WordCount
- *
  */
 public class WordCount extends Configured implements Tool {
+	
+	private static final String OUTPUT_TABLE = "words";
 	
 	public static class MapClass extends
 			Mapper<Object, Text, Text, IntWritable> {
@@ -60,9 +65,7 @@ public class WordCount extends Configured implements Tool {
 	}
 		
 	public static class Reduce extends
-			Reducer<Text, IntWritable, Text, IntWritable> {
-
-		private IntWritable count = new IntWritable();
+			TableReducer<Text, IntWritable, Text> {
 
 		@Override
 		protected void reduce(Text key, Iterable<IntWritable> values,
@@ -72,8 +75,9 @@ public class WordCount extends Configured implements Tool {
 			for (IntWritable value : values) {
 				sum += value.get();
 			}
-			count.set(sum);
-			context.write(key, count);
+			Put put = new Put(toBytes(key.toString()));
+			put.add(toBytes("number"), toBytes(""), toBytes(sum));
+			context.write(null, put);
 		}
 	}
 
@@ -81,15 +85,16 @@ public class WordCount extends Configured implements Tool {
         Job job = new Job(getConf());
 		job.setJarByClass(WordCount.class);
 		job.setJobName("wordcount");
-		
-		job.setOutputKeyClass(Text.class);
-		job.setOutputValueClass(IntWritable.class);
-		
+						
         job.setMapperClass(MapClass.class);
-        job.setReducerClass(Reduce.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(IntWritable.class);
 
-		FileInputFormat.setInputPaths(job, new Path("/tmp/wordcount/in"));
-		FileOutputFormat.setOutputPath(job, new Path("/tmp/wordcount/out"));
+        FileInputFormat.setInputPaths(job, new Path("/tmp/wordcount/in"));
+        TableMapReduceUtil.initTableReducerJob(
+        		OUTPUT_TABLE,
+                WordCount.Reduce.class,
+                job);        
 
 		boolean success = job.waitForCompletion(true);
 		return success ? 0 : 1; 

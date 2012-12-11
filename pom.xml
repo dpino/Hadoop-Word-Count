@@ -65,6 +65,13 @@
             <version>1.0.2</version>
         </dependency>
 
+        <!-- HBase -->
+        <dependency>
+            <groupId>org.apache.hbase</groupId>
+            <artifactId>hbase</artifactId>
+            <version>0.90.5</version>
+        </dependency>
+
     </dependencies>
 
 </project>
