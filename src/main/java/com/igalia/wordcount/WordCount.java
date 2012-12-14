@@ -23,15 +23,17 @@ import java.io.IOException;
 import java.util.StringTokenizer;
 
 import org.apache.hadoop.conf.Configured;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
+import org.apache.hadoop.hbase.mapreduce.TableMapper;
 import org.apache.hadoop.hbase.mapreduce.TableReducer;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.util.Tool;
 
 /**
@@ -43,25 +45,30 @@ import org.apache.hadoop.util.Tool;
  */
 public class WordCount extends Configured implements Tool {
 	
+	private static final String INPUT_TABLE = "files";
 	private static final String OUTPUT_TABLE = "words";
 	
-	public static class MapClass extends
-			Mapper<Object, Text, Text, IntWritable> {
+	public static class MapClass extends TableMapper<Text, IntWritable> {
 
 		private static final IntWritable ONE = new IntWritable(1);
 		private Text word = new Text();
-
+		
 		@Override
-		protected void map(Object key, Text value, Context context)
-				throws IOException, InterruptedException {
+		protected void map(ImmutableBytesWritable key, Result row,
+				Context context) throws IOException, InterruptedException {
 
-			StringTokenizer tokenizer = new StringTokenizer(value.toString());
+			String content = Bytes.toString(row.getValue(
+					Bytes.toBytes("content"), Bytes.toBytes("")));
+
+			StringTokenizer tokenizer = new StringTokenizer(content);
 			while (tokenizer.hasMoreTokens()) {
 				String token = tokenizer.nextToken();
 				word.set(token);
 				context.write(word, ONE);
 			}
+			
 		}
+
 	}
 		
 	public static class Reduce extends
@@ -86,11 +93,16 @@ public class WordCount extends Configured implements Tool {
 		job.setJarByClass(WordCount.class);
 		job.setJobName("wordcount");
 						
-        job.setMapperClass(MapClass.class);
-        job.setMapOutputKeyClass(Text.class);
-        job.setMapOutputValueClass(IntWritable.class);
-
-        FileInputFormat.setInputPaths(job, new Path("/tmp/wordcount/in"));
+	    Scan scan = new Scan();
+        scan.setCaching(500);
+        scan.setCacheBlocks(false);
+		
+        TableMapReduceUtil.initTableMapperJob(
+                INPUT_TABLE,
+                scan,
+                WordCount.MapClass.class,
+                Text.class, IntWritable.class,
+                job);        
         TableMapReduceUtil.initTableReducerJob(
         		OUTPUT_TABLE,
                 WordCount.Reduce.class,
