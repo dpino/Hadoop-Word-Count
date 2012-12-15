@@ -18,6 +18,14 @@
 package com.igalia.wordcount;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 import java.util.StringTokenizer;
 
 import org.apache.hadoop.conf.Configured;
@@ -62,19 +70,57 @@ public class WordCount extends Configured implements Tool {
 	public static class Reduce extends
 			Reducer<Text, IntWritable, Text, IntWritable> {
 
-		private IntWritable count = new IntWritable();
+		private static final int MAX = 20;
+		private Map<String, Integer> results = new HashMap<String, Integer>(); 
 
 		@Override
 		protected void reduce(Text key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
 
 			int sum = 0;
-			for (IntWritable value : values) {
-				sum += value.get();
+			for (IntWritable each : values) {
+				sum += each.get();
 			}
-			count.set(sum);
-			context.write(key, count);
+			results.put(key.toString(), Integer.valueOf(sum));
 		}
+
+		@Override
+		protected void cleanup(Context context) throws IOException,
+				InterruptedException {
+			super.cleanup(context);
+			
+			Map<String, Integer> sortedResults = sortByValue(results);
+			int i = 0;
+			for (String key : sortedResults.keySet()) {
+				if (i++ == MAX) {
+					break;
+				}
+				Integer value = sortedResults.get(key);
+				context.write(new Text(key), new IntWritable(value));
+			}
+		}
+		
+		private Map<String, Integer> sortByValue(final Map<String, Integer> map) {
+			Map result = new LinkedHashMap();
+			
+			// Sort keys by value
+			List keys = new LinkedList(map.entrySet());
+			Collections.sort(keys, new Comparator() {
+				public int compare(Object o1, Object o2) {
+					Object value1 = ((Map.Entry) o1).getValue();
+					Object value2 = ((Map.Entry) o2).getValue();
+					return -((Comparable) value1).compareTo(value2);
+				}
+			});
+			
+			// Put into result
+			for (Iterator i = keys.iterator(); i.hasNext();) {
+				Map.Entry entry = (Map.Entry) i.next();
+				result.put(entry.getKey(), entry.getValue());
+			}
+			return result;	
+		}
+		
 	}
 
 	public int run(String[] arg0) throws Exception {		
@@ -87,6 +133,7 @@ public class WordCount extends Configured implements Tool {
 		
         job.setMapperClass(MapClass.class);
         job.setReducerClass(Reduce.class);
+        job.setNumReduceTasks(1);
 
 		FileInputFormat.setInputPaths(job, new Path("/tmp/wordcount/in"));
 		FileOutputFormat.setOutputPath(job, new Path("/tmp/wordcount/out"));
